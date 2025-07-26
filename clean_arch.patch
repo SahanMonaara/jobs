@@ -1,0 +1,325 @@
+diff --git a/lib/main.dart b/lib/main.dart
+new file mode 100644
+index 0000000..e3e3e93
+--- /dev/null
++++ b/lib/main.dart
+@@ -0,0 +1,46 @@
++import 'package:flutter/material.dart';
++import 'package:flutter_bloc/flutter_bloc.dart';
++import 'package:http/http.dart' as http;
++import 'features/jobs/data/datasources/job_remote_datasource.dart';
++import 'features/jobs/data/repositories/job_repository_impl.dart';
++import 'features/jobs/domain/usecases/fetch_jobs.dart';
++import 'features/jobs/presentation/bloc/jobs_bloc.dart';
++import 'features/jobs/presentation/pages/job_list_page.dart';
++
++void main() {
++  final JobRemoteDataSource remoteDataSource =
++      JobRemoteDataSourceImpl(client: http.Client());
++  final jobRepository =
++      JobRepositoryImpl(remoteDataSource: remoteDataSource);
++  final fetchJobsUseCase = FetchJobs(jobRepository);
++
++  runApp(MyApp(fetchJobsUseCase: fetchJobsUseCase));
++}
++
++class MyApp extends StatelessWidget {
++  final FetchJobs fetchJobsUseCase;
++
++  const MyApp({required this.fetchJobsUseCase, super.key});
++
++  @override
++  Widget build(BuildContext context) {
++    return MaterialApp(
++      title: 'Jobs App',
++      home: BlocProvider(
++        create: (_) => JobsBloc(fetchJobs: fetchJobsUseCase)..add(FetchJobsEvent()),
++        child: const JobListPage(),
++      ),
++    );
++  }
++}
++
+diff --git a/lib/core/error/failures.dart b/lib/core/error/failures.dart
+new file mode 100644
+index 0000000..7d2a2f5
+--- /dev/null
++++ b/lib/core/error/failures.dart
+@@ -0,7 +1,7 @@
++abstract class Failure {}
++
++class ServerFailure extends Failure {}
++
++class CacheFailure extends Failure {}
+diff --git a/lib/core/usecases/usecase.dart b/lib/core/usecases/usecase.dart
+new file mode 100644
+index 0000000..72ecb89
+--- /dev/null
++++ b/lib/core/usecases/usecase.dart
+@@ -0,8 +1,8 @@
++abstract class UseCase<Type, Params> {
++  Future<Type> call(Params params);
++}
++
++class NoParams {}
+diff --git a/lib/features/jobs/data/datasources/job_remote_datasource.dart b/lib/features/jobs/data/datasources/job_remote_datasource.dart
+new file mode 100644
+index 0000000..56ae0c7
+--- /dev/null
++++ b/lib/features/jobs/data/datasources/job_remote_datasource.dart
+@@ -0,26 +1,26 @@
++import 'dart:convert';
++import 'package:http/http.dart' as http;
++import '../models/job_model.dart';
++
++abstract class JobRemoteDataSource {
++  Future<List<JobModel>> fetchJobs();
++}
++
++class JobRemoteDataSourceImpl implements JobRemoteDataSource {
++  final http.Client client;
++
++  JobRemoteDataSourceImpl({required this.client});
++
++  @override
++  Future<List<JobModel>> fetchJobs() async {
++    final response = await client.get(
++      Uri.parse('https://example.com/api/jobs'),
++      headers: {'Content-Type': 'application/json'},
++    );
++
++    if (response.statusCode == 200) {
++      final List decoded = json.decode(response.body) as List;
++      return decoded.map((json) => JobModel.fromJson(json)).toList();
++    } else {
++      throw Exception('Failed to load jobs');
++    }
++  }
++}
+diff --git a/lib/features/jobs/data/models/job_model.dart b/lib/features/jobs/data/models/job_model.dart
+new file mode 100644
+index 0000000..937f2e1
+--- /dev/null
++++ b/lib/features/jobs/data/models/job_model.dart
+@@ -0,19 +1,19 @@
++import '../../domain/entities/job.dart';
++
++class JobModel extends Job {
++  JobModel({
++    required String id,
++    required String title,
++    required String company,
++  }) : super(id: id, title: title, company: company);
++
++  factory JobModel.fromJson(Map<String, dynamic> json) {
++    return JobModel(
++      id: json['id'] as String,
++      title: json['title'] as String,
++      company: json['company'] as String,
++    );
++  }
++
++  Map<String, dynamic> toJson() {
++    return {
++      'id': id,
++      'title': title,
++      'company': company,
++    };
++  }
++}
+diff --git a/lib/features/jobs/data/repositories/job_repository_impl.dart b/lib/features/jobs/data/repositories/job_repository_impl.dart
+new file mode 100644
+index 0000000..c220db8
+--- /dev/null
++++ b/lib/features/jobs/data/repositories/job_repository_impl.dart
+@@ -0,19 +1,19 @@
++import 'package:dartz/dartz.dart';
++import '../../../../core/error/failures.dart';
++import '../../domain/entities/job.dart';
++import '../../domain/repositories/job_repository.dart';
++import '../datasources/job_remote_datasource.dart';
++
++class JobRepositoryImpl implements JobRepository {
++  final JobRemoteDataSource remoteDataSource;
++
++  JobRepositoryImpl({required this.remoteDataSource});
++
++  @override
++  Future<Either<Failure, List<Job>>> fetchJobs() async {
++    try {
++      final jobs = await remoteDataSource.fetchJobs();
++      return Right(jobs);
++    } catch (_) {
++      return Left(ServerFailure());
++    }
++  }
++}
+diff --git a/lib/features/jobs/domain/entities/job.dart b/lib/features/jobs/domain/entities/job.dart
+new file mode 100644
+index 0000000..7f9f850
+--- /dev/null
++++ b/lib/features/jobs/domain/entities/job.dart
+@@ -0,13 +1,13 @@
++class Job {
++  final String id;
++  final String title;
++  final String company;
++
++  Job({
++    required this.id,
++    required this.title,
++    required this.company,
++  });
++}
+diff --git a/lib/features/jobs/domain/repositories/job_repository.dart b/lib/features/jobs/domain/repositories/job_repository.dart
+new file mode 100644
+index 0000000..52ac0b6
+--- /dev/null
++++ b/lib/features/jobs/domain/repositories/job_repository.dart
+@@ -0,11 +1,11 @@
++import 'package:dartz/dartz.dart';
++import '../../../../core/error/failures.dart';
++import '../entities/job.dart';
++
++abstract class JobRepository {
++  Future<Either<Failure, List<Job>>> fetchJobs();
++}
+diff --git a/lib/features/jobs/domain/usecases/fetch_jobs.dart b/lib/features/jobs/domain/usecases/fetch_jobs.dart
+new file mode 100644
+index 0000000..db135e2
+--- /dev/null
++++ b/lib/features/jobs/domain/usecases/fetch_jobs.dart
+@@ -0,18 +1,18 @@
++import 'package:dartz/dartz.dart';
++import '../../../../core/error/failures.dart';
++import '../../../../core/usecases/usecase.dart';
++import '../entities/job.dart';
++import '../repositories/job_repository.dart';
++
++class FetchJobs implements UseCase<List<Job>, NoParams> {
++  final JobRepository repository;
++
++  FetchJobs(this.repository);
++
++  @override
++  Future<Either<Failure, List<Job>>> call(NoParams params) async {
++    return await repository.fetchJobs();
++  }
++}
+diff --git a/lib/features/jobs/presentation/bloc/jobs_bloc.dart b/lib/features/jobs/presentation/bloc/jobs_bloc.dart
+new file mode 100644
+index 0000000..98dbd63
+--- /dev/null
++++ b/lib/features/jobs/presentation/bloc/jobs_bloc.dart
+@@ -0,43 +1,43 @@
++import 'package:flutter_bloc/flutter_bloc.dart';
++import 'package:equatable/equatable.dart';
++import '../../domain/entities/job.dart';
++import '../../domain/usecases/fetch_jobs.dart';
++
++part 'jobs_event.dart';
++part 'jobs_state.dart';
++
++class JobsBloc extends Bloc<JobsEvent, JobsState> {
++  final FetchJobs fetchJobs;
++
++  JobsBloc({required this.fetchJobs}) : super(JobsInitial()) {
++    on<FetchJobsEvent>((event, emit) async {
++      emit(JobsLoading());
++      final failureOrJobs = await fetchJobs.call(NoParams());
++      failureOrJobs.fold(
++        (failure) => emit(JobsError()),
++        (jobs) => emit(JobsLoaded(jobs)),
++      );
++    });
++  }
++}
+diff --git a/lib/features/jobs/presentation/bloc/jobs_event.dart b/lib/features/jobs/presentation/bloc/jobs_event.dart
+new file mode 100644
+index 0000000..b1bff4d
+--- /dev/null
++++ b/lib/features/jobs/presentation/bloc/jobs_event.dart
+@@ -0,9 +1,9 @@
++part of 'jobs_bloc.dart';
++
++abstract class JobsEvent extends Equatable {
++  @override
++  List<Object> get props => [];
++}
++
++class FetchJobsEvent extends JobsEvent {}
+diff --git a/lib/features/jobs/presentation/bloc/jobs_state.dart b/lib/features/jobs/presentation/bloc/jobs_state.dart
+new file mode 100644
+index 0000000..334c1c6
+--- /dev/null
++++ b/lib/features/jobs/presentation/bloc/jobs_state.dart
+@@ -0,24 +1,24 @@
++part of 'jobs_bloc.dart';
++
++abstract class JobsState extends Equatable {
++  @override
++  List<Object> get props => [];
++}
++
++class JobsInitial extends JobsState {}
++
++class JobsLoading extends JobsState {}
++
++class JobsLoaded extends JobsState {
++  final List<Job> jobs;
++
++  JobsLoaded(this.jobs);
++
++  @override
++  List<Object> get props => [jobs];
++}
++
++class JobsError extends JobsState {}
+diff --git a/lib/features/jobs/presentation/pages/job_list_page.dart b/lib/features/jobs/presentation/pages/job_list_page.dart
+new file mode 100644
+index 0000000..a52abef
+--- /dev/null
++++ b/lib/features/jobs/presentation/pages/job_list_page.dart
+@@ -0,35 +1,35 @@
++import 'package:flutter/material.dart';
++import 'package:flutter_bloc/flutter_bloc.dart';
++import '../bloc/jobs_bloc.dart';
++
++class JobListPage extends StatelessWidget {
++  const JobListPage({super.key});
++
++  @override
++  Widget build(BuildContext context) {
++    return Scaffold(
++      appBar: AppBar(title: const Text('Jobs')),
++      body: BlocBuilder<JobsBloc, JobsState>(
++        builder: (context, state) {
++          if (state is JobsLoading) {
++            return const Center(child: CircularProgressIndicator());
++          } else if (state is JobsLoaded) {
++            return ListView.builder(
++              itemCount: state.jobs.length,
++              itemBuilder: (context, index) {
++                final job = state.jobs[index];
++                return ListTile(
++                  title: Text(job.title),
++                  subtitle: Text(job.company),
++                );
++              },
++            );
++          } else if (state is JobsError) {
++            return Center(
++              child: ElevatedButton(
++                onPressed: () {
++                  context.read<JobsBloc>().add(FetchJobsEvent());
++                },
++                child: const Text('Retry'),
++              ),
++            );
++          }
++          return const SizedBox.shrink();
++        },
++      ),
++    );
++  }
++}
